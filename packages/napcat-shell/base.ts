@@ -38,6 +38,7 @@ import { loadNapcatConfig } from '@/napcat-core/helper/config';
 import { logSubscription, LogWrapper } from '@/napcat-core/helper/log';
 import { proxiedListenerOf } from '@/napcat-core/helper/proxy-handler';
 import { createOfflineRecovery } from '@/napcat-core/helper/offline-recovery';
+import { createAutoRelogin } from '@/napcat-core/helper/auto-relogin';
 import { QQBasicInfoWrapper } from '@/napcat-core/helper/qq-basic-info';
 import { statusHelperSubscription } from '@/napcat-core/helper/status';
 import { applyPendingUpdates } from '@/napcat-webui-backend/src/api/UpdateNapCat';
@@ -114,10 +115,19 @@ async function handleLogin (
   quickLoginUin: string | undefined,
   historyLoginList: LoginListItem[]
 ): Promise<SelfInfo> {
-  const context = { isLogined: false, loginFlowInitialized: false };
+  const context = { isLogined: false, loginFlowInitialized: false, hadSuccessfulLogin: false };
   let inner_resolve: (value: SelfInfo) => void;
   const selfInfo: Promise<SelfInfo> = new Promise((resolve) => {
     inner_resolve = resolve;
+  });
+  const autoRelogin = createAutoRelogin({
+    isLoggedIn: () => context.isLogined,
+    runAutomaticLogin: () => WebUiDataRuntime.runWebUiConfigQuickFunction(),
+    requestQRCode: async () => {
+      WebUiDataRuntime.setQQLoginPhase('generating_qrcode');
+      loginService.getQRCodePicture();
+    },
+    onAttempt: (reason) => logger.logWarn('[Core] [Login] 检测到退出登录，尝试自动重新登录', { reason }),
   });
   // 连接服务
 
@@ -129,6 +139,7 @@ async function handleLogin (
   };
   loginListener.onQRCodeLoginSucceed = async (loginResult) => {
     context.isLogined = true;
+    context.hadSuccessfulLogin = true;
     WebUiDataRuntime.setQQLoginStatus(true);
     WebUiDataRuntime.setQQLoginError('');
     const oneBotContext = WebUiDataRuntime.getOneBotContext();
@@ -150,11 +161,13 @@ async function handleLogin (
     WebUiDataRuntime.setQQLoginStatus(false);
     WebUiDataRuntime.setQQLoginPhase('offline');
     logger.logWarn('[Core] [Login] 登录服务已断开，将允许重新获取二维码');
+    if (context.hadSuccessfulLogin) void autoRelogin('login-service-disconnected');
   };
   loginListener.onLogoutSucceed = () => {
     context.isLogined = false;
     WebUiDataRuntime.setQQLoginStatus(false);
     WebUiDataRuntime.setQQLoginPhase('offline');
+    if (context.hadSuccessfulLogin) void autoRelogin('logout-succeed');
   };
   loginListener.onLoginConnected = () => {
     waitForNetworkConnection(loginService, logger).then(async () => {
@@ -201,10 +214,12 @@ async function handleLogin (
     if (!context.isLogined) {
       logger.logError('[Core] [Login] Login Error,ErrType: ', errType, ' ErrCode:', errCode);
       if (errType === 1 && errCode === 3) {
-        // 仅二维码过期时自动请求下一张二维码。账号被踢下线等其他错误
-        // 需要由用户触发刷新，避免每两秒重复创建原生登录会话。
-        WebUiDataRuntime.setQQLoginError('二维码已过期，请刷新');
-        loginService.getQRCodePicture();
+        if (context.hadSuccessfulLogin) {
+          void autoRelogin('qrcode-session-failed');
+        } else {
+          WebUiDataRuntime.setQQLoginError('二维码已过期，请刷新');
+          loginService.getQRCodePicture();
+        }
       }
     }
   };
@@ -219,7 +234,7 @@ async function handleLogin (
   loginService.connect();
   return await selfInfo;
 }
-async function handleLoginInner (context: { isLogined: boolean; loginFlowInitialized: boolean; }, logger: LogWrapper, loginService: NodeIKernelLoginService, quickLoginUin: string | undefined, historyLoginList: LoginListItem[]) {
+async function handleLoginInner (context: { isLogined: boolean; loginFlowInitialized: boolean; hadSuccessfulLogin: boolean; }, logger: LogWrapper, loginService: NodeIKernelLoginService, quickLoginUin: string | undefined, historyLoginList: LoginListItem[]) {
   const resolveQuickPasswordMd5 = (): string | undefined => {
     const quickPasswordMd5 = process.env['NAPCAT_QUICK_PASSWORD_MD5']?.trim();
     if (quickPasswordMd5) {
@@ -267,6 +282,8 @@ async function handleLoginInner (context: { isLogined: boolean; loginFlowInitial
             loginService.getQRCodePicture();
             resolve({ result: false, message: errMsg });
           } else {
+            context.isLogined = true;
+            context.hadSuccessfulLogin = true;
             WebUiDataRuntime.setQQLoginStatus(true);
             WebUiDataRuntime.setQQLoginError('');
             resolve({ result: true, message: '' });
@@ -335,6 +352,8 @@ async function handleLoginInner (context: { isLogined: boolean; loginFlowInitial
             loginService.getQRCodePicture();
             resolve({ result: false, message: errMsg });
           } else {
+            context.isLogined = true;
+            context.hadSuccessfulLogin = true;
             WebUiDataRuntime.setQQLoginStatus(true);
             WebUiDataRuntime.setQQLoginError('');
             resolve({ result: true, message: '' });
@@ -427,6 +446,8 @@ async function handleLoginInner (context: { isLogined: boolean; loginFlowInitial
             loginService.getQRCodePicture();
             resolve({ result: false, message: errMsg });
           } else {
+            context.isLogined = true;
+            context.hadSuccessfulLogin = true;
             WebUiDataRuntime.setQQLoginStatus(true);
             WebUiDataRuntime.setQQLoginError('');
             resolve({ result: true, message: '' });
@@ -475,6 +496,8 @@ async function handleLoginInner (context: { isLogined: boolean; loginFlowInitial
             loginService.getQRCodePicture();
             resolve({ result: false, message: errMsg });
           } else {
+            context.isLogined = true;
+            context.hadSuccessfulLogin = true;
             WebUiDataRuntime.setQQLoginStatus(true);
             WebUiDataRuntime.setQQLoginError('');
             resolve({ result: true, message: '' });
