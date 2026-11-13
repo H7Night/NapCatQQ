@@ -128,6 +128,10 @@ async function handleLogin (
       loginService.getQRCodePicture();
     },
     onAttempt: (reason) => logger.logWarn('[Core] [Login] 检测到退出登录，尝试自动重新登录', { reason }),
+    onExhausted: (_, attempts) => {
+      logger.logError(`[Core] [Login] 自动登录连续失败 ${attempts} 次，停止自动重试，请通过 WebUI 扫码登录`);
+      WebUiDataRuntime.setQQLoginError(`自动登录连续失败 ${attempts} 次，请通过 WebUI 扫码登录`);
+    },
   });
   // 连接服务
 
@@ -140,6 +144,7 @@ async function handleLogin (
   loginListener.onQRCodeLoginSucceed = async (loginResult) => {
     context.isLogined = true;
     context.hadSuccessfulLogin = true;
+    autoRelogin.reset();
     WebUiDataRuntime.setQQLoginStatus(true);
     WebUiDataRuntime.setQQLoginError('');
     const oneBotContext = WebUiDataRuntime.getOneBotContext();
@@ -284,6 +289,7 @@ async function handleLoginInner (context: { isLogined: boolean; loginFlowInitial
           } else {
             context.isLogined = true;
             context.hadSuccessfulLogin = true;
+            autoRelogin.reset();
             WebUiDataRuntime.setQQLoginStatus(true);
             WebUiDataRuntime.setQQLoginError('');
             resolve({ result: true, message: '' });
@@ -354,6 +360,7 @@ async function handleLoginInner (context: { isLogined: boolean; loginFlowInitial
           } else {
             context.isLogined = true;
             context.hadSuccessfulLogin = true;
+            autoRelogin.reset();
             WebUiDataRuntime.setQQLoginStatus(true);
             WebUiDataRuntime.setQQLoginError('');
             resolve({ result: true, message: '' });
@@ -448,6 +455,7 @@ async function handleLoginInner (context: { isLogined: boolean; loginFlowInitial
           } else {
             context.isLogined = true;
             context.hadSuccessfulLogin = true;
+            autoRelogin.reset();
             WebUiDataRuntime.setQQLoginStatus(true);
             WebUiDataRuntime.setQQLoginError('');
             resolve({ result: true, message: '' });
@@ -498,6 +506,7 @@ async function handleLoginInner (context: { isLogined: boolean; loginFlowInitial
           } else {
             context.isLogined = true;
             context.hadSuccessfulLogin = true;
+            autoRelogin.reset();
             WebUiDataRuntime.setQQLoginStatus(true);
             WebUiDataRuntime.setQQLoginError('');
             resolve({ result: true, message: '' });

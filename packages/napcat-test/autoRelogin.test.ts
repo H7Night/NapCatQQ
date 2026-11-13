@@ -64,4 +64,49 @@ describe('automatic relogin', () => {
     release();
     await Promise.all([first, second]);
   });
+
+  test('opens QR and stops retrying after three failed attempts', async () => {
+    const runAutomaticLogin = vi.fn(async () => {});
+    const requestQRCode = vi.fn(async () => {});
+    const onExhausted = vi.fn();
+    const relogin = createAutoRelogin({
+      isLoggedIn: () => false,
+      runAutomaticLogin,
+      requestQRCode,
+      onAttempt: vi.fn(),
+      onExhausted,
+      maxAttempts: 3,
+      retryCooldownMs: 0,
+    });
+
+    await relogin('login-failed');
+    await relogin('login-failed');
+    await relogin('login-failed');
+    await relogin('login-failed');
+
+    expect(runAutomaticLogin).toHaveBeenCalledTimes(3);
+    expect(requestQRCode).toHaveBeenCalledTimes(3);
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+  });
+
+  test('manual login resets the retry circuit breaker', async () => {
+    const state = { loggedIn: false };
+    const runAutomaticLogin = vi.fn(async () => {});
+    const relogin = createAutoRelogin({
+      isLoggedIn: () => state.loggedIn,
+      runAutomaticLogin,
+      requestQRCode: vi.fn(async () => {}),
+      onAttempt: vi.fn(),
+      maxAttempts: 1,
+      retryCooldownMs: 0,
+    });
+
+    await relogin('first');
+    state.loggedIn = true;
+    relogin.reset();
+    state.loggedIn = false;
+    await relogin('after-manual-login');
+
+    expect(runAutomaticLogin).toHaveBeenCalledTimes(2);
+  });
 });
